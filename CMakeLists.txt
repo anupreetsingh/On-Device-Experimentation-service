@@ -24,9 +24,10 @@ set(EXP_WARNINGS -Wall -Wextra)
 # libexp, the client library apps link. libexp/src is public only for this repo's own
 # tools and tests, which use its internal headers.
 add_library(exp STATIC
+  libexp/src/libexp.cpp
   libexp/src/uds_client.cpp
 )
-target_include_directories(exp PUBLIC libexp/src)
+target_include_directories(exp PUBLIC libexp/include libexp/src)
 target_compile_options(exp PRIVATE ${EXP_WARNINGS})
 target_link_libraries(exp PUBLIC Threads::Threads)
 
@@ -74,4 +75,10 @@ if(EXP_BUILD_TESTS)
   target_link_libraries(expd_tests PRIVATE expd_core GTest::gtest_main)
   target_compile_options(expd_tests PRIVATE ${EXP_WARNINGS})
   gtest_discover_tests(expd_tests)
+
+  # libexp keeps process-wide state, so its tests get their own executable and main().
+  add_executable(libexp_tests tests/libexp_test.cpp)
+  target_link_libraries(libexp_tests PRIVATE expd_core GTest::gtest)  # expd_core brings exp
+  target_compile_options(libexp_tests PRIVATE ${EXP_WARNINGS})
+  add_test(NAME libexp_tests COMMAND libexp_tests)
 endif()
