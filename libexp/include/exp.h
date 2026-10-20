@@ -21,8 +21,19 @@ extern "C" {
 
 /* Copies this device's variant for `experiment` into `out` and returns 0. Returns -1, leaving
  * `out` untouched, if the device isn't in the experiment, expd can't be reached, or `out` is
- * too small. On -1 the app uses its default. */
+ * too small. On -1 the app uses its default.
+ *
+ * Also logs an exposure the first time each experiment is read with the current snapshot, so
+ * call it where the app actually runs the code that differs between variants. */
 int exp_variant(const char *experiment, char *out, size_t out_len);
+
+/* Like exp_variant(), but logs no exposure. For prefetching: call exp_log_exposure() later,
+ * when the code that depends on the variant actually runs. */
+int exp_peek_variant(const char *experiment, char *out, size_t out_len);
+
+/* Logs an exposure for `experiment` (once per snapshot, like exp_variant()). Never blocks: if
+ * expd's socket is full or expd isn't running, the exposure is dropped. */
+void exp_log_exposure(const char *experiment);
 
 /* Picks up a new snapshot if expd has published one. Call it at a safe point, like app launch
  * or return to foreground, so a variant never changes mid-session. Returns 1 if a newer

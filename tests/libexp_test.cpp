@@ -134,6 +134,37 @@ TEST(LibExp, SlowPathAsksExpd) {
   EXPECT_EQ(exp_internal_variant_via_socket("missing", out, sizeof out), -1);
 }
 
+int exposures_in_stats(const TestDaemon& daemon) {
+  std::string stats = daemon.call("STATS");
+  size_t at = stats.find("exposures=");
+  return at == std::string::npos ? -1 : std::atoi(stats.c_str() + at + 10);
+}
+
+TEST(LibExp, LogsEachExposureOncePerSnapshot) {
+  TestDaemon daemon(g_dir,
+                    "new_search_ranking k3f9 control:5000 treatment:5000\n"
+                    "photo_grid a1 off:0 on:10000\n");
+  ASSERT_TRUE(refresh_until(current_generation(g_dir)));
+
+  char out[EXP_VARIANT_MAX];
+  for (int i = 0; i < 100; ++i) ASSERT_EQ(exp_variant("new_search_ranking", out, sizeof out), 0);
+  // Prefetching logs nothing; the explicit call later logs once.
+  for (int i = 0; i < 10; ++i) ASSERT_EQ(exp_peek_variant("photo_grid", out, sizeof out), 0);
+  exp_log_exposure("photo_grid");
+  exp_log_exposure("photo_grid");
+  exp_log_exposure("missing");  // not in the snapshot: nothing to log
+
+  for (int i = 0; i < 200 && exposures_in_stats(daemon) < 2; ++i) usleep(5'000);
+  usleep(20'000);
+  EXPECT_EQ(exposures_in_stats(daemon), 2);
+
+  daemon.stop();
+  std::string log;
+  ASSERT_TRUE(read_file(g_dir + "/exposures.log", &log));
+  EXPECT_NE(log.find("\tnew_search_ranking\tcontrol\n"), std::string::npos) << log;
+  EXPECT_NE(log.find("\tphoto_grid\ton\n"), std::string::npos) << log;
+}
+
 }  // namespace
 }  // namespace expd
 

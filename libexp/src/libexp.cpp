@@ -2,14 +2,19 @@
 
 #include <fcntl.h>
 #include <sys/mman.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
 #include <atomic>
+#include <cerrno>
 #include <cstring>
+#include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 
+#include "frame.h"
 #include "libexp_internal.h"
 #include "locations.h"
 #include "snapshot_format.h"
@@ -33,6 +38,9 @@ struct Mapping {
   const snapshot::Entry* entries;
   uint32_t count;
   uint64_t generation;
+  // One flag per entry: set once this process has sent the entry's exposure. A new snapshot
+  // starts with fresh flags, so each experiment logs again after a remap.
+  std::unique_ptr<std::atomic<bool>[]> exposed;
 };
 
 // The only shared state a lookup touches. Remaps store with release and lookups load with
@@ -50,11 +58,13 @@ int g_inotify_fd = -1;
 bool g_watching = false;
 #endif
 
-// A lazily opened connection to expd for the slow path. The lock makes callers take turns.
+// A lazily opened connection to expd. The lock makes callers take turns; lookups on the
+// fast path never use one.
 struct Connection {
   std::mutex mu;
   int fd = -1;
 
+  // Sends a request and waits for the reply (up to the socket's 2 s timeout).
   bool call(const std::string& request, std::string* reply) {
     std::lock_guard<std::mutex> lock(mu);
     // A second try on a fresh connection, in case expd restarted since the last call.
@@ -66,9 +76,34 @@ struct Connection {
     }
     return false;
   }
+
+  // Sends a message that gets no reply, without blocking. If the socket buffer is full, the
+  // message is dropped: an exposure is never worth stalling the app.
+  bool post(const std::string& message) {
+    std::string bytes;
+    frame::append(&bytes, message);
+    std::lock_guard<std::mutex> lock(mu);
+    for (int attempt = 0; attempt < 2; ++attempt) {
+      if (fd < 0 && (fd = uds::connect_to(locations::socket_path())) < 0) return false;
+      ssize_t n = send(fd, bytes.data(), bytes.size(), MSG_DONTWAIT | uds::no_sigpipe_flags());
+      if (n == ssize_t(bytes.size())) return true;
+      if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) return false;  // nothing sent
+      // Part of a frame went out, or expd is gone. Close, so expd discards the partial frame
+      // when it sees the connection end; on a dead connection, try once more on a new one.
+      close(fd);
+      fd = -1;
+      if (n > 0) return false;
+    }
+    return false;
+  }
 };
 
-Connection g_requests;
+Connection g_requests;   // slow-path GETs
+Connection g_exposures;  // EXPOSE messages, on their own connection so they never wait behind a GET
+
+// Exposures already sent from the slow path, which has no mapping to keep flags in.
+std::mutex g_slow_exposed_mu;
+std::set<std::string> g_slow_exposed;
 
 // open + mmap + validate. The fd can be closed right after mmap(): the mapping holds its own
 // reference to the file, so it stays readable even after expd renames a new one over it.
@@ -93,7 +128,8 @@ const Mapping* map_snapshot() {
     munmap(base, size);
     return nullptr;
   }
-  return new Mapping{base, size, entries, count, generation};
+  return new Mapping{base, size, entries, count, generation,
+                     std::make_unique<std::atomic<bool>[]>(count)};
 }
 
 // Maps the current file and, if expd published it after the one lookups see, switches them
@@ -164,16 +200,19 @@ int copy_out(const char* variant, char* out, size_t out_len) {
   return 0;
 }
 
-int variant_via_socket(const char* experiment, char* out, size_t out_len) {
+bool variant_via_socket(const char* experiment, std::string* variant) {
   std::string reply;
-  if (!g_requests.call(std::string("GET ") + experiment, &reply)) return -1;
-  if (reply.rfind("OK ", 0) != 0) return -1;  // NONE: not in the experiment
-  return copy_out(reply.c_str() + 3, out, out_len);
+  if (!g_requests.call(std::string("GET ") + experiment, &reply)) return false;
+  if (reply.rfind("OK ", 0) != 0) return false;  // NONE: not in the experiment
+  *variant = reply.substr(3);
+  return true;
 }
 
-}  // namespace
+void send_exposure(const char* experiment, const char* variant) {
+  g_exposures.post(std::string("EXPOSE ") + experiment + " " + variant);
+}
 
-extern "C" int exp_variant(const char* experiment, char* out, size_t out_len) {
+int lookup(const char* experiment, char* out, size_t out_len, bool log_exposure) {
   if (experiment == nullptr || out == nullptr) return -1;
   std::call_once(g_init_once, init);
 
@@ -182,12 +221,45 @@ extern "C" int exp_variant(const char* experiment, char* out, size_t out_len) {
   if (m != nullptr) {
     const snapshot::Entry* entry = snapshot::find(m->entries, m->count, experiment);
     if (entry == nullptr) return -1;  // no such experiment, or it was turned off
+    if (log_exposure) {
+      // After the first time, this is one relaxed load. Only the thread that flips the flag
+      // sends, so each experiment logs once per snapshot even when threads race.
+      std::atomic<bool>& sent = m->exposed[size_t(entry - m->entries)];
+      if (!sent.load(std::memory_order_relaxed) && !sent.exchange(true, std::memory_order_relaxed)) {
+        send_exposure(entry->experiment, entry->variant);
+      }
+    }
     return copy_out(entry->variant, out, out_len);
   }
 
   // Slow path: no snapshot yet (expd hasn't published, or this app can't read it). expd
   // computes the same answer; this costs a round trip over the socket.
-  return variant_via_socket(experiment, out, out_len);
+  std::string variant;
+  if (!variant_via_socket(experiment, &variant)) return -1;
+  if (log_exposure) {
+    bool first;
+    {
+      std::lock_guard<std::mutex> lock(g_slow_exposed_mu);
+      first = g_slow_exposed.insert(std::string(experiment) + " " + variant).second;
+    }
+    if (first) send_exposure(experiment, variant.c_str());
+  }
+  return copy_out(variant.c_str(), out, out_len);
+}
+
+}  // namespace
+
+extern "C" int exp_variant(const char* experiment, char* out, size_t out_len) {
+  return lookup(experiment, out, out_len, /*log_exposure=*/true);
+}
+
+extern "C" int exp_peek_variant(const char* experiment, char* out, size_t out_len) {
+  return lookup(experiment, out, out_len, /*log_exposure=*/false);
+}
+
+extern "C" void exp_log_exposure(const char* experiment) {
+  char variant[EXP_VARIANT_MAX];
+  lookup(experiment, variant, sizeof variant, /*log_exposure=*/true);
 }
 
 extern "C" int exp_refresh(void) {
@@ -213,5 +285,7 @@ extern "C" uint64_t exp_snapshot_generation(void) {
 
 extern "C" int exp_internal_variant_via_socket(const char* experiment, char* out, size_t out_len) {
   if (experiment == nullptr || out == nullptr) return -1;
-  return variant_via_socket(experiment, out, out_len);
+  std::string variant;
+  if (!variant_via_socket(experiment, &variant)) return -1;
+  return copy_out(variant.c_str(), out, out_len);
 }
