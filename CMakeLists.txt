@@ -20,3 +20,34 @@ endif()
 
 find_package(Threads REQUIRED)
 set(EXP_WARNINGS -Wall -Wextra)
+
+# expd's pieces, as a library so the tests can link them.
+add_library(expd_core STATIC
+  expd/sha256.cpp
+  expd/assignment.cpp
+  expd/files.cpp
+  expd/device_id.cpp
+)
+target_include_directories(expd_core PUBLIC expd)
+target_compile_options(expd_core PRIVATE ${EXP_WARNINGS})
+target_link_libraries(expd_core PUBLIC Threads::Threads)
+
+if(EXP_BUILD_TESTS)
+  enable_testing()
+  include(FetchContent)
+  FetchContent_Declare(googletest
+    URL https://github.com/google/googletest/archive/refs/tags/v1.17.0.tar.gz
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+  )
+  set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+  set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
+  FetchContent_MakeAvailable(googletest)
+  include(GoogleTest)
+
+  add_executable(expd_tests
+    tests/assignment_test.cpp
+  )
+  target_link_libraries(expd_tests PRIVATE expd_core GTest::gtest_main)
+  target_compile_options(expd_tests PRIVATE ${EXP_WARNINGS})
+  gtest_discover_tests(expd_tests)
+endif()
