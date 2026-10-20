@@ -10,6 +10,7 @@
 
 #include "assigner.h"
 #include "event_loop.h"
+#include "exposure_log.h"
 
 namespace expd {
 
@@ -18,10 +19,11 @@ namespace expd {
 //
 //   GET <experiment>   ->  OK <variant>  |  NONE
 //   PUSH\n<config>     ->  OK <experiments>  |  ERR <why>   (only from expd's own user or root)
+//   EXPOSE <experiment> <variant>   no reply: an app never waits on an exposure
 //   STATS              ->  OK key=value ...
 class Server {
  public:
-  Server(EventLoop& loop, Assigner& assigner);
+  Server(EventLoop& loop, Assigner& assigner, ExposureLog* exposures);
   ~Server();
   Server(const Server&) = delete;
   Server& operator=(const Server&) = delete;
@@ -45,6 +47,7 @@ class Server {
 
   EventLoop& loop_;
   Assigner& assigner_;
+  ExposureLog* exposures_;  // may be null
   std::unordered_map<int, Client> clients_;
   std::vector<int> listeners_;
   uint64_t requests_ = 0;

@@ -42,6 +42,7 @@ add_library(expd_core STATIC
   expd/activation.cpp
   expd/assigner.cpp
   expd/server.cpp
+  expd/exposure_log.cpp
 )
 target_include_directories(expd_core PUBLIC expd)
 target_compile_options(expd_core PRIVATE ${EXP_WARNINGS})
@@ -71,6 +72,7 @@ if(EXP_BUILD_TESTS)
     tests/assignment_test.cpp
     tests/snapshot_test.cpp
     tests/server_test.cpp
+    tests/exposure_test.cpp
   )
   target_link_libraries(expd_tests PRIVATE expd_core GTest::gtest_main)
   target_compile_options(expd_tests PRIVATE ${EXP_WARNINGS})

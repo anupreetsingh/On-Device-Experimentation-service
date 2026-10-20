@@ -2,6 +2,7 @@
 //
 //   expctl get <experiment>   this device's variant
 //   expctl push <file>        send a new config (- for stdin)
+//   expctl expose <experiment> <variant>
 //   expctl stats              expd's counters
 #include <unistd.h>
 
@@ -19,6 +20,7 @@ int usage() {
   std::fprintf(stderr,
                "usage: expctl get <experiment>\n"
                "       expctl push <config-file | ->\n"
+               "       expctl expose <experiment> <variant>\n"
                "       expctl stats\n");
   return 2;
 }
@@ -51,6 +53,8 @@ int main(int argc, char** argv) {
       return 1;
     }
     request = "PUSH\n" + config;
+  } else if (command == "expose" && argc == 4) {
+    request = std::string("EXPOSE ") + argv[2] + " " + argv[3];
   } else {
     return usage();
   }
@@ -60,6 +64,11 @@ int main(int argc, char** argv) {
   if (fd < 0) {
     std::fprintf(stderr, "expctl: can't connect to %s: %s\n", path.c_str(), std::strerror(errno));
     return 1;
+  }
+  if (command == "expose") {  // expd doesn't reply to exposures
+    bool sent = uds::send_frame(fd, request);
+    close(fd);
+    return sent ? 0 : 1;
   }
   std::string reply;
   bool ok = uds::request(fd, request, &reply);

@@ -34,7 +34,8 @@ uid_t peer_uid(int fd) {
 
 }  // namespace
 
-Server::Server(EventLoop& loop, Assigner& assigner) : loop_(loop), assigner_(assigner) {}
+Server::Server(EventLoop& loop, Assigner& assigner, ExposureLog* exposures)
+    : loop_(loop), assigner_(assigner), exposures_(exposures) {}
 
 Server::~Server() {
   for (auto& [fd, client] : clients_) {
@@ -163,11 +164,26 @@ void Server::handle(Client& client, std::string_view request) {
     } else {
       reply = "OK " + std::to_string(assigner_.experiment_count());
     }
+  } else if (command == "EXPOSE") {
+    // Into the ring buffer and straight back to serving: the disk write happens on the writer.
+    size_t sep = arg.find(' ');
+    std::string_view experiment = arg.substr(0, sep);
+    std::string_view variant = sep == std::string_view::npos ? std::string_view() : arg.substr(sep + 1);
+    if (exposures_ != nullptr && valid_name(experiment, kMaxExperimentName) &&
+        valid_name(variant, kMaxVariantName)) {
+      exposures_->record(experiment, variant);
+    }
+    return;
   } else if (command == "STATS") {
     reply = "OK experiments=" + std::to_string(assigner_.experiment_count()) +
             " generation=" + std::to_string(assigner_.generation()) +
             " clients=" + std::to_string(clients_.size()) +
             " requests=" + std::to_string(requests_);
+    if (exposures_ != nullptr) {
+      ExposureLog::Stats s = exposures_->stats();
+      reply += " exposures=" + std::to_string(s.recorded) + " dropped=" + std::to_string(s.dropped) +
+               " flushes=" + std::to_string(s.flushes) + " written=" + std::to_string(s.written);
+    }
   } else {
     reply = "ERR unknown command";
   }
