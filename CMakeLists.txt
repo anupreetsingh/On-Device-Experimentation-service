@@ -27,8 +27,9 @@ add_library(expd_core STATIC
   expd/assignment.cpp
   expd/files.cpp
   expd/device_id.cpp
+  expd/snapshot_writer.cpp
 )
-target_include_directories(expd_core PUBLIC expd)
+target_include_directories(expd_core PUBLIC expd libexp/src)
 target_compile_options(expd_core PRIVATE ${EXP_WARNINGS})
 target_link_libraries(expd_core PUBLIC Threads::Threads)
 
@@ -46,6 +47,7 @@ if(EXP_BUILD_TESTS)
 
   add_executable(expd_tests
     tests/assignment_test.cpp
+    tests/snapshot_test.cpp
   )
   target_link_libraries(expd_tests PRIVATE expd_core GTest::gtest_main)
   target_compile_options(expd_tests PRIVATE ${EXP_WARNINGS})
