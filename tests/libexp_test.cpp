@@ -4,6 +4,7 @@
 #include <unistd.h>
 
 #include <atomic>
+#include <cstdlib>
 #include <string>
 #include <thread>
 #include <vector>

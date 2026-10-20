@@ -9,10 +9,6 @@
 #include "frame.h"
 #include "uds_client.h"
 
-#ifdef __linux__
-#include <sys/un.h>
-#endif
-
 namespace expd {
 namespace {
 

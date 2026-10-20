@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    name: ${{ matrix.os }}${{ matrix.tsan == 'ON' && ' + ThreadSanitizer' || '' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+        tsan: ['OFF', 'ON']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      # Recent kernels randomize mmap addresses with more bits than TSan's memory layout allows.
+      - if: runner.os == 'Linux' && matrix.tsan == 'ON'
+        run: sudo sysctl vm.mmap_rnd_bits=28
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.tsan == 'ON' && 'Debug' || 'Release' }} -DEXP_TSAN=${{ matrix.tsan }}
+      - run: cmake --build build -j4
+      - run: ctest --test-dir build --output-on-failure
+
+  swift:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift build
