@@ -15,7 +15,9 @@ inline std::string state_dir() {
 }
 
 constexpr const char* kSnapshotFile = "snapshot";
+constexpr const char* kSocketFile = "expd.sock";
 
 inline std::string snapshot_path() { return state_dir() + "/" + kSnapshotFile; }
+inline std::string socket_path() { return state_dir() + "/" + kSocketFile; }
 
 }  // namespace locations
