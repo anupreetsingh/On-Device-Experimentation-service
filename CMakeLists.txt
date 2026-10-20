@@ -56,6 +56,10 @@ add_executable(expctl tools/expctl.cpp)
 target_link_libraries(expctl PRIVATE exp)
 target_compile_options(expctl PRIVATE ${EXP_WARNINGS})
 
+add_executable(exp_bench tools/exp_bench.cpp)
+target_link_libraries(exp_bench PRIVATE exp)
+target_compile_options(exp_bench PRIVATE ${EXP_WARNINGS})
+
 if(EXP_BUILD_TESTS)
   enable_testing()
   include(FetchContent)
