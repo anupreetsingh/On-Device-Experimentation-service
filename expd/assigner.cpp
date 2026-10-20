@@ -17,7 +17,34 @@ bool Assigner::load(std::string* error) {
   if (!read_file(state_dir_ + "/config", &text)) text.clear();
   std::vector<Experiment> experiments;
   if (!parse_config(text, &experiments, error)) return false;
-  return apply(std::move(experiments), error);
+  if (!apply(std::move(experiments), error)) return false;
+  announce_snapshot(false);
+  return true;
+}
+
+bool Assigner::push(std::string_view config_text, std::string* error) {
+  std::vector<Experiment> experiments;
+  if (!parse_config(config_text, &experiments, error)) return false;
+
+  // Removing an experiment is the kill switch: apps remap right away instead of waiting for
+  // their next safe point, so the feature turns off now.
+  bool removed_any = std::any_of(experiments_.begin(), experiments_.end(), [&](const Experiment& old) {
+    return std::none_of(experiments.begin(), experiments.end(),
+                        [&](const Experiment& e) { return e.name == old.name; });
+  });
+
+  // Save the config before publishing, so a restart serves what was pushed.
+  std::string path = state_dir_ + "/config";
+  std::string previous;
+  bool had_previous = read_file(path, &previous);
+  if (!write_file_atomically(path, config_text, 0600, error)) return false;
+  if (!apply(std::move(experiments), error)) {
+    std::string ignored;
+    if (had_previous) write_file_atomically(path, previous, 0600, &ignored);
+    return false;
+  }
+  announce_snapshot(removed_any);
+  return true;
 }
 
 const std::string* Assigner::variant(std::string_view experiment) const {

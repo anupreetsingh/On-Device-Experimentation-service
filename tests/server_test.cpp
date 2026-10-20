@@ -116,6 +116,42 @@ TEST(Server, ManyClientsAtOnce) {
   }
 }
 
+TEST(Server, PushPublishesAndPersists) {
+  TempDir dir;
+  {
+    TestDaemon daemon(dir.path(), kConfig);
+    EXPECT_EQ(daemon.call("PUSH\nnew_search_ranking k3f9 control:0 treatment:10000\n"), "OK 1");
+    EXPECT_EQ(daemon.call("GET new_search_ranking"), "OK treatment");
+    EXPECT_EQ(daemon.call("GET photo_grid"), "NONE");
+    EXPECT_EQ(current_generation(dir.path()), 2u);
+  }
+  // A restarted expd serves the pushed config and keeps counting generations.
+  TestDaemon restarted(dir.path(), "");
+  EXPECT_EQ(restarted.call("GET new_search_ranking"), "OK treatment");
+  EXPECT_EQ(current_generation(dir.path()), 3u);
+}
+
+TEST(Server, BadPushChangesNothing) {
+  TempDir dir;
+  TestDaemon daemon(dir.path(), kConfig);
+  std::string reply = daemon.call("PUSH\nnew_search_ranking k3f9 control:10 treatment:10\n");
+  EXPECT_EQ(reply.rfind("ERR line 1: weights add up to 20", 0), 0u) << reply;
+  EXPECT_EQ(daemon.call("GET photo_grid"), "OK on");
+  EXPECT_EQ(current_generation(dir.path()), 1u);
+
+  std::string saved;
+  ASSERT_TRUE(read_file(dir.file("config"), &saved));
+  EXPECT_EQ(saved, kConfig);
+}
+
+TEST(Server, RampKeepsTheVariantForThisDevice) {
+  TempDir dir;
+  TestDaemon daemon(dir.path(), "exp k3f9 control:9000 treatment:1000\n");
+  std::string before = daemon.call("GET exp");
+  ASSERT_EQ(daemon.call("PUSH\nexp k3f9 control:5000 treatment:5000\n"), "OK 1");
+  if (before == "OK treatment") EXPECT_EQ(daemon.call("GET exp"), "OK treatment");
+}
+
 TEST(Server, SecondListenerOnTheSamePathFails) {
   TempDir dir;
   TestDaemon daemon(dir.path(), kConfig);

@@ -18,6 +18,10 @@ class Assigner {
   // Loads the saved config (none means no experiments) and publishes a snapshot for it.
   bool load(std::string* error);
 
+  // A config push: parses `config_text`, saves it, publishes the new assignments, and tells
+  // apps. On any error nothing changes.
+  bool push(std::string_view config_text, std::string* error);
+
   // This device's variant in `experiment`, or nullptr if there's no such experiment.
   const std::string* variant(std::string_view experiment) const;
 

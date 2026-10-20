@@ -20,4 +20,8 @@ bool publish_snapshot(const std::string& dir, const std::vector<Assignment>& ass
 // The generation of the valid snapshot in `dir`, or 0 if there isn't one.
 uint64_t current_generation(const std::string& dir);
 
+// Tells apps a new snapshot is in place. On macOS that's a Darwin notification. On Linux it's
+// a no-op, because libexp watches the directory with inotify and sees the rename itself.
+void announce_snapshot(bool kill_switch);
+
 }  // namespace expd

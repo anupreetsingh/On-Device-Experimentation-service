@@ -1,6 +1,7 @@
 // expctl: talks to expd over its socket.
 //
 //   expctl get <experiment>   this device's variant
+//   expctl push <file>        send a new config (- for stdin)
 //   expctl stats              expd's counters
 #include <unistd.h>
 
@@ -17,8 +18,20 @@ namespace {
 int usage() {
   std::fprintf(stderr,
                "usage: expctl get <experiment>\n"
+               "       expctl push <config-file | ->\n"
                "       expctl stats\n");
   return 2;
+}
+
+bool read_all(const char* path, std::string* out) {
+  FILE* f = std::strcmp(path, "-") == 0 ? stdin : std::fopen(path, "r");
+  if (f == nullptr) return false;
+  char buf[4096];
+  size_t n;
+  while ((n = std::fread(buf, 1, sizeof buf, f)) > 0) out->append(buf, n);
+  bool ok = !std::ferror(f);
+  if (f != stdin) std::fclose(f);
+  return ok;
 }
 
 }  // namespace
@@ -31,6 +44,13 @@ int main(int argc, char** argv) {
     request = std::string("GET ") + argv[2];
   } else if (command == "stats" && argc == 2) {
     request = "STATS";
+  } else if (command == "push" && argc == 3) {
+    std::string config;
+    if (!read_all(argv[2], &config)) {
+      std::fprintf(stderr, "expctl: can't read %s: %s\n", argv[2], std::strerror(errno));
+      return 1;
+    }
+    request = "PUSH\n" + config;
   } else {
     return usage();
   }

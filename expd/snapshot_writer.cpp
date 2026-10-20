@@ -7,6 +7,10 @@
 #include "locations.h"
 #include "snapshot_format.h"
 
+#ifdef __APPLE__
+#include <notify.h>
+#endif
+
 namespace expd {
 
 static_assert(kMaxExperimentName < snapshot::kExperimentSize, "experiment names must fit");
@@ -51,6 +55,15 @@ uint64_t current_generation(const std::string& dir) {
   uint64_t generation;
   if (snapshot::validate(bytes.data(), bytes.size(), &count, &generation) == nullptr) return 0;
   return generation;
+}
+
+void announce_snapshot(bool kill_switch) {
+#ifdef __APPLE__
+  notify_post(locations::kSnapshotNotification);
+  if (kill_switch) notify_post(locations::kKillSwitchNotification);
+#else
+  (void)kill_switch;
+#endif
 }
 
 }  // namespace expd

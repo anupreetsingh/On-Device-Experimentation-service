@@ -153,6 +153,16 @@ void Server::handle(Client& client, std::string_view request) {
   if (command == "GET") {
     const std::string* variant = assigner_.variant(arg);
     reply = variant != nullptr ? "OK " + *variant : "NONE";
+  } else if (command == "PUSH") {
+    // Any app can read variants, but only the config's owner may change them.
+    std::string error;
+    if (client.uid != geteuid() && client.uid != 0) {
+      reply = "ERR permission denied";
+    } else if (!assigner_.push(arg, &error)) {
+      reply = "ERR " + error;
+    } else {
+      reply = "OK " + std::to_string(assigner_.experiment_count());
+    }
   } else if (command == "STATS") {
     reply = "OK experiments=" + std::to_string(assigner_.experiment_count()) +
             " generation=" + std::to_string(assigner_.generation()) +

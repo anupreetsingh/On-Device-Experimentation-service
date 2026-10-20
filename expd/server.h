@@ -17,6 +17,7 @@ namespace expd {
 // text command:
 //
 //   GET <experiment>   ->  OK <variant>  |  NONE
+//   PUSH\n<config>     ->  OK <experiments>  |  ERR <why>   (only from expd's own user or root)
 //   STATS              ->  OK key=value ...
 class Server {
  public:
