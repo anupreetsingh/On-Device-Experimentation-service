@@ -1,0 +1,12 @@
+[Unit]
+Description=expd experiment-assignment daemon
+Requires=expd.socket
+
+[Service]
+ExecStart=%h/.local/bin/expd
+Environment=EXP_STATE_DIR=%h/.expd
+# SIGTERM, then SIGKILL after this long.
+TimeoutStopSec=20
+
+[Install]
+Also=expd.socket

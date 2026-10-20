@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Per-user launchd agent for expd; scripts/install-launchd.sh fills in the @...@ values.
+  launchd creates the socket under Sockets > Listeners when the agent loads, and starts expd
+  on the first connection. expd claims it with launch_activate_socket("Listeners").
+  To stop expd, launchd sends SIGTERM, then SIGKILL after ExitTimeOut seconds.
+  If expd dies, launchd keeps the socket, so new connections wait in its backlog instead of
+  failing. launchd won't start a job more than once per ThrottleInterval (10 s by default),
+  so after a crash that wait can last up to 10 s.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>@LABEL@</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>@EXPD@</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>EXP_STATE_DIR</key>
+    <string>@STATE_DIR@</string>
+  </dict>
+  <key>Sockets</key>
+  <dict>
+    <key>Listeners</key>
+    <dict>
+      <key>SockPathName</key>
+      <string>@STATE_DIR@/expd.sock</string>
+      <key>SockPathMode</key>
+      <integer>384</integer>
+    </dict>
+  </dict>
+  <key>ExitTimeOut</key>
+  <integer>20</integer>
+  <key>StandardErrorPath</key>
+  <string>@STATE_DIR@/expd.log</string>
+</dict>
+</plist>

@@ -1,0 +1,12 @@
+# systemd user unit: systemd creates the socket at login and starts expd.service on the first
+# connection, passing the socket as fd 3 (LISTEN_FDS). Install with scripts/install-systemd.sh.
+[Unit]
+Description=expd experiment-assignment daemon socket
+
+[Socket]
+ListenStream=%h/.expd/expd.sock
+SocketMode=0600
+DirectoryMode=0700
+
+[Install]
+WantedBy=sockets.target
